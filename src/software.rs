@@ -27,7 +27,7 @@ pub fn run(startup: Option<PathBuf>) -> Result<(), String> {
     #[cfg(all(test, target_os = "linux"))]
     {
         use winit::platform::x11::EventLoopBuilderExtX11;
-        builder.with_any_thread(true);
+        builder.with_any_thread(true).with_x11();
     }
     let event_loop = builder
         .build()

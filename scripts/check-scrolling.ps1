@@ -7,6 +7,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $IsWindows -and $env:MDV_SCROLL_XVFB_CHILD -ne '1') {
+    $env:MDV_SCROLL_XVFB_CHILD = '1'
+    try {
+        $arguments = @('-File', $PSCommandPath, '-Output', $Output, '-MaximumFrameP95Ms', $MaximumFrameP95Ms, '-Renderer', $Renderer)
+        if ($Document) { $arguments += @('-Document', $Document) }
+        & xvfb-run --auto-servernum pwsh @arguments
+        if ($LASTEXITCODE -ne 0) { throw 'The isolated native scrolling check failed.' }
+    } finally {
+        Remove-Item Env:MDV_SCROLL_XVFB_CHILD
+    }
+    return
+}
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $fixture = $null
 $process = $null
@@ -97,6 +109,10 @@ public static class MdvScrollingCheck {
         }
     } while (-not $window -and [DateTime]::UtcNow -lt $deadline)
     if (-not $window) { throw 'The native test window was not found.' }
+    if (-not $IsWindows) {
+        & xdotool mousemove --window $window 700 400
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot position the pointer in the isolated test display.' }
+    }
     Start-Sleep -Seconds 2
     foreach ($step in 0..79) {
         if ($process.HasExited) { break }
@@ -105,7 +121,7 @@ public static class MdvScrollingCheck {
             [MdvScrollingCheck]::Wheel($window, $amount)
         } else {
             $button = if ($step -lt 60) { 5 } else { 4 }
-            & xdotool click --window $window --repeat 3 --delay 0 $button
+            & xdotool click --repeat 3 --delay 0 $button
             if ($LASTEXITCODE -ne 0) { throw 'Cannot send native scroll input.' }
         }
         Start-Sleep -Milliseconds 90
@@ -113,11 +129,13 @@ public static class MdvScrollingCheck {
     if (-not $process.WaitForExit(25000)) { throw 'The native scrolling test did not exit.' }
     if ($process.ExitCode -ne 0) { throw "The native test failed.`n$($stdout.Result)`n$($stderr.Result)" }
     $rows = @(Import-Csv (Join-Path $Output 'frames.csv'))
+    $received = ($rows | ForEach-Object { [int]$_.wheel_events } | Measure-Object -Maximum).Maximum
+    Write-Host "Captured $($rows.Count) native frames and $received wheel events."
     $factor = if ($IsWindows) { 1 } else { 3 }
     $active = @($rows | Where-Object {
         [int]$_.wheel_events -ge 5 * $factor -and [int]$_.wheel_events -le 70 * $factor
     })
-    if ($active.Count -lt 20) { throw 'Too few native scrolling frames were captured.' }
+    if ($active.Count -lt 20) { throw "Too few active scrolling frames: $($active.Count).`n$($stdout.Result)`n$($stderr.Result)" }
     $maxOffset = ($rows | ForEach-Object { [double]$_.offset } | Measure-Object -Maximum).Maximum
     $lastOffset = [double]$rows[-1].offset
     if ($maxOffset -lt 200 -or $lastOffset -gt $maxOffset - 100) {

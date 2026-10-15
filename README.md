@@ -130,7 +130,7 @@ render/presentation pacing:
 .\scripts\check-scrolling.ps1 -Document "path to a file.md"
 ```
 
-On Linux, run the script inside your desktop session or under `xvfb-run`.
+On Linux, the script starts its own isolated Xvfb display.
 The native test uses deterministic app-local hover plus native wheel messages;
 it does not require moving your desktop cursor. CSV measurements and screenshots
 are written to `target/scroll-diagnostics`. Supplied documents stay local.

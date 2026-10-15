@@ -55,8 +55,17 @@ jobs:
       - name: Linux native rendered scrolling
         if: runner.os == 'Linux'
         run: |
-          xvfb-run --auto-servernum pwsh -File (Join-Path 'scripts' 'check-scrolling.ps1')
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path 'scripts' 'check-scrolling.ps1')
+      - name: Native scrolling failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-scroll-diagnostics-${{ matrix.target }}
+          path: |
+            target/scroll-diagnostics/*.csv
+            target/scroll-diagnostics/*.txt
+            target/scroll-diagnostics/*.png
+          if-no-files-found: ignore
       - name: Build release
         run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Windows native smoke test
