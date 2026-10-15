@@ -33,8 +33,15 @@ pub struct Mdv {
 
 impl Mdv {
     pub fn new(cc: &eframe::CreationContext<'_>, startup: Option<PathBuf>) -> Self {
-        let settings = cc
-            .storage
+        Self::from_storage(&cc.egui_ctx, cc.storage, startup)
+    }
+
+    pub fn from_storage(
+        context: &egui::Context,
+        storage: Option<&dyn eframe::Storage>,
+        startup: Option<PathBuf>,
+    ) -> Self {
+        let settings = storage
             .and_then(|storage| eframe::get_value(storage, "appearance"))
             .unwrap_or_default();
         let mut app = Self {
@@ -42,7 +49,7 @@ impl Mdv {
             ..Default::default()
         };
         app.settings.size = app.settings.size.clamp(10.0, 32.0);
-        app.settings.apply_theme(&cc.egui_ctx);
+        app.settings.apply_theme(context);
         if let Some(path) = startup {
             let result = if path.is_dir() {
                 app.set_folder(&path)
@@ -170,7 +177,7 @@ impl Mdv {
         self.active = self.active.min(self.tabs.len().saturating_sub(1));
     }
 
-    fn check_close(&mut self, ctx: &egui::Context) {
+    pub(crate) fn check_close(&mut self, ctx: &egui::Context) {
         if !self.allow_exit
             && ctx.input(|input| input.viewport().close_requested())
             && self.tabs.iter().any(Document::is_dirty)
@@ -206,7 +213,7 @@ impl Mdv {
         }
     }
 
-    fn show(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.shortcuts(&ctx);
         egui::Panel::top("toolbar").show(ui, |ui| {
@@ -434,6 +441,13 @@ impl Mdv {
         if response.should_close() {
             self.error = None;
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scroll_metrics(&self) -> (f32, f32, usize) {
+        self.tabs
+            .get(self.active)
+            .map_or((0.0, 0.0, 0), |tab| tab.view.diagnostic)
     }
 }
 
@@ -697,6 +711,229 @@ mod tests {
             .map(|index| format!("let variable_{index} = \"a line of code\";\n"))
             .collect();
         benchmark_scroll_document("Long code block", &format!("```rust\n{code}```\n"));
+    }
+
+    #[test]
+    #[ignore = "Local-only diagnosis; requires an explicitly supplied fixture folder"]
+    fn local_scroll_diagnostic() {
+        let directory = PathBuf::from(
+            std::env::var_os("MDV_SCROLL_FIXTURE_DIR")
+                .expect("Set MDV_SCROLL_FIXTURE_DIR to the local Markdown folder"),
+        );
+        let mut paths: Vec<_> = fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
+            .collect();
+        paths.sort();
+        for path in paths {
+            let mut app = Mdv::default();
+            app.open_path(&path, None).unwrap();
+            let ctx = egui::Context::default();
+            let mut times = Vec::new();
+            let mut backwards = 0;
+            let mut resized = 0;
+            let mut previous = 0.0;
+            let mut stuck = 0;
+            let mut max_height = 0.0_f32;
+            for frame in 0..240 {
+                let mut input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1100.0, 760.0),
+                    )),
+                    time: Some(frame as f64 / 60.0),
+                    ..Default::default()
+                };
+                input
+                    .events
+                    .push(egui::Event::PointerMoved(egui::pos2(700.0, 400.0)));
+                input.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Line,
+                    delta: egui::vec2(0.0, -3.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Modifiers::NONE,
+                });
+                let start = std::time::Instant::now();
+                let mut output = ctx.run_ui(input, |ui| app.show(ui));
+                let _ = ctx.tessellate(std::mem::take(&mut output.shapes), output.pixels_per_point);
+                output.drop_without_applying_deltas();
+                let (offset, height, changes) = app.tabs[0].view.diagnostic;
+                if frame > 15 {
+                    times.push(start.elapsed().as_secs_f64() * 1_000.0);
+                    backwards += usize::from(offset < previous - 1.0);
+                    stuck +=
+                        usize::from((offset - previous).abs() < 0.01 && offset < height - 800.0);
+                    resized += changes;
+                }
+                max_height = max_height.max(height);
+                previous = offset;
+            }
+            times.sort_by(f64::total_cmp);
+            eprintln!(
+                "{}: p50 {:.2} ms p95 {:.2} ms; layout={} measure={} resized={} backwards={} stuck={} offset={:.0}/{:.0}",
+                path.file_name().unwrap().to_string_lossy(),
+                times[times.len() / 2],
+                times[times.len() * 95 / 100],
+                app.tabs[0].view.layout_passes,
+                app.tabs[0].view.measure_calls,
+                resized,
+                backwards,
+                stuck,
+                previous,
+                max_height,
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Local native profiling; requires a document and output directory"]
+    fn native_scroll_diagnostic() {
+        use std::time::{Duration, Instant};
+        use winit::platform::windows::EventLoopBuilderExtWindows;
+
+        struct Probe {
+            inner: Mdv,
+            start: Instant,
+            last: Instant,
+            rows: String,
+            output: PathBuf,
+            captures: usize,
+            wheel_events: usize,
+        }
+
+        impl eframe::App for Probe {
+            fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+                self.wheel_events += input
+                    .events
+                    .iter()
+                    .filter(|event| matches!(event, egui::Event::MouseWheel { .. }))
+                    .count();
+                if std::env::var_os("MDV_NATIVE_VIRTUAL_HOVER").is_some() {
+                    input
+                        .events
+                        .push(egui::Event::PointerMoved(egui::pos2(700.0, 400.0)));
+                }
+            }
+
+            fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+                use std::fmt::Write;
+                let now = Instant::now();
+                let elapsed = now.duration_since(self.start).as_secs_f64();
+                let interval = now.duration_since(self.last).as_secs_f64() * 1000.0;
+                self.last = now;
+                self.inner.show(ui);
+                let (offset, height, resized) = self.inner.tabs[0].view.diagnostic;
+                writeln!(
+                    self.rows,
+                    "{elapsed:.6},{interval:.3},{:.3},{offset:.2},{height:.2},{resized},{}",
+                    frame.info().cpu_usage.unwrap_or(0.0) * 1000.0,
+                    self.wheel_events,
+                )
+                .unwrap();
+                let screenshots = ui.input(|input| {
+                    input
+                        .events
+                        .iter()
+                        .filter_map(|event| match event {
+                            egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                });
+                for screenshot in screenshots {
+                    let pixels: Vec<_> = screenshot
+                        .pixels
+                        .iter()
+                        .flat_map(|pixel| pixel.to_srgba_unmultiplied())
+                        .collect();
+                    image::save_buffer(
+                        self.output.join(format!("frame-{}.png", self.captures)),
+                        &pixels,
+                        screenshot.size[0] as u32,
+                        screenshot.size[1] as u32,
+                        image::ColorType::Rgba8,
+                    )
+                    .unwrap();
+                }
+                if elapsed > 2.0 + self.captures as f64 * 3.0 && self.captures < 3 {
+                    self.captures += 1;
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Screenshot(
+                            egui::UserData::default(),
+                        ));
+                }
+                if elapsed > 12.0 {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                } else {
+                    ui.ctx()
+                        .request_repaint_after(Duration::from_secs_f64(12.1 - elapsed));
+                }
+            }
+        }
+
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                fs::write(self.output.join("frames.csv"), &self.rows).unwrap();
+            }
+        }
+
+        let document = PathBuf::from(
+            std::env::var_os("MDV_NATIVE_DOCUMENT").expect("Set MDV_NATIVE_DOCUMENT"),
+        );
+        let output = PathBuf::from(
+            std::env::var_os("MDV_NATIVE_PROFILE_DIR").expect("Set MDV_NATIVE_PROFILE_DIR"),
+        );
+        fs::create_dir_all(&output).unwrap();
+        let options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_title("MDV local scroll diagnosis")
+                .with_inner_size([1100.0, 760.0]),
+            renderer: eframe::Renderer::Wgpu,
+            event_loop_builder: Some(Box::new(|builder| {
+                builder.with_any_thread(true);
+            })),
+            persistence_path: Some(output.join("state")),
+            ..Default::default()
+        };
+        eframe::run_native(
+            "MDV scroll diagnosis",
+            options,
+            Box::new(move |cc| {
+                if let Some(state) = &cc.wgpu_render_state {
+                    fs::write(
+                        output.join("adapter.txt"),
+                        format!("{:#?}", state.adapter.get_info()),
+                    )?;
+                } else {
+                    fs::write(output.join("adapter.txt"), "OpenGL/EGL renderer")?;
+                }
+                Ok(Box::new(Probe {
+                    inner: Mdv::new(cc, Some(document)),
+                    start: Instant::now(),
+                    last: Instant::now(),
+                    rows: "time,interval_ms,cpu_ms,offset,height,resized,wheel_events\n".into(),
+                    output,
+                    captures: 0,
+                    wheel_events: 0,
+                }))
+            }),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[ignore = "Local native CPU profiling; requires a document and output directory"]
+    fn native_software_scroll_diagnostic() {
+        assert!(
+            std::env::var_os("MDV_NATIVE_PROFILE_DIR").is_some(),
+            "Set MDV_NATIVE_PROFILE_DIR"
+        );
+        let document = PathBuf::from(
+            std::env::var_os("MDV_NATIVE_DOCUMENT").expect("Set MDV_NATIVE_DOCUMENT"),
+        );
+        crate::software::run(Some(document)).unwrap();
     }
 
     fn benchmark_scroll_document(name: &str, source: &str) {

@@ -1,7 +1,8 @@
 # MDV
 
 A small native Markdown viewer and editor for **Windows and Linux x86_64**.
-Written in Rust with egui, DirectX 12 on Windows, and OpenGL on Linux.
+Written in Rust with egui, native CPU rendering on software-only Windows
+machines, DirectX 12 on hardware-capable Windows systems, and OpenGL on Linux.
 No Electron, webview, or JavaScript runtime.
 
 ## Download
@@ -25,9 +26,12 @@ chmod +x mdv
 A desktop-specific portal backend (for example `xdg-desktop-portal-gtk` or
 `xdg-desktop-portal-kde`) is recommended for the folder picker.
 
-Windows 10/11 builds use DirectX 12 (including software adapters) and the static
-Microsoft C runtime. The executable is not code-signed, so Windows may show a
-SmartScreen warning for the download.
+Windows 10/11 builds automatically avoid the slow software DirectX path on
+GPU-less systems, including virtual machines and remote desktops. The CPU
+fallback presents native bitmaps and does not need extra runtime DLLs. Builds
+use the static Microsoft C runtime. The executable is not code-signed, so
+Windows may show a SmartScreen warning for the download.
+The window title shows the version and includes `(CPU)` when the fallback is active.
 
 ## Use
 
@@ -76,6 +80,9 @@ Scrolling uses cached block geometry and only renders the visible Markdown.
 Large lists are rendered in bounded chunks, and code blocks retain their
 highlighted text layout. Resizing, appearance changes, edits, and image loads
 update the affected layout while preserving the reading position.
+The CPU backend limits redraws to 60 Hz while scrolling and sleeps when idle.
+On either platform, set `MDV_RENDERER=software` to explicitly select CPU
+rendering; the default is `MDV_RENDERER=auto`.
 
 HTML is displayed as text, not executed. There is no browser engine, plugin
 system, Mermaid renderer, or LaTeX engine. Remote images may make network
@@ -113,6 +120,20 @@ and 10,000-line code block):
 ```sh
 cargo test --release --locked scroll_frame_benchmark -- --ignored --nocapture
 ```
+
+CPU layout timing alone is not a native frame-rate measurement. To check the
+complete CPU-rendered window, document movement in both directions, and
+render/presentation pacing:
+
+```powershell
+.\scripts\check-scrolling.ps1
+.\scripts\check-scrolling.ps1 -Document "path to a file.md"
+```
+
+On Linux, run the script inside your desktop session or under `xvfb-run`.
+The native test uses deterministic app-local hover plus native wheel messages;
+it does not require moving your desktop cursor. CSV measurements and screenshots
+are written to `target/scroll-diagnostics`. Supplied documents stay local.
 
 The release executable is in `target/release`. GitHub Actions performs these
 checks, starts the native application on both platforms, and builds downloadable

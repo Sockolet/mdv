@@ -48,18 +48,27 @@ jobs:
         run: cargo test --locked
       - name: Scroll performance
         run: cargo test --release --locked scroll_frame_benchmark -- --ignored --nocapture
+      - name: Windows native rendered scrolling
+        if: runner.os == 'Windows'
+        run: |
+          & (Join-Path 'scripts' 'check-scrolling.ps1')
+      - name: Linux native rendered scrolling
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run --auto-servernum pwsh -File (Join-Path 'scripts' 'check-scrolling.ps1')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build release
         run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Windows native smoke test
         if: runner.os == 'Windows'
         run: |
-          & (Join-Path 'scripts' 'smoke.ps1') -Binary (Join-Path 'target' '${{ matrix.target }}' 'release' 'mdv.exe') -Scroll
+          & (Join-Path 'scripts' 'smoke.ps1') -Binary (Join-Path 'target' '${{ matrix.target }}' 'release' 'mdv.exe')
       - name: Linux native smoke test
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
-          xvfb-run --auto-servernum pwsh -File (Join-Path 'scripts' 'smoke.ps1') -Binary (Join-Path 'target' '${{ matrix.target }}' 'release' 'mdv') -Scroll
+          xvfb-run --auto-servernum pwsh -File (Join-Path 'scripts' 'smoke.ps1') -Binary (Join-Path 'target' '${{ matrix.target }}' 'release' 'mdv')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package
         run: |

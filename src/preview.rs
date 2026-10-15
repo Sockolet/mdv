@@ -43,11 +43,13 @@ pub struct Preview {
     loading: Vec<usize>,
     correction: Option<f32>,
     #[cfg(test)]
-    layout_passes: usize,
+    pub(crate) layout_passes: usize,
     #[cfg(test)]
     rendered_blocks: usize,
     #[cfg(test)]
-    measure_calls: usize,
+    pub(crate) measure_calls: usize,
+    #[cfg(test)]
+    pub(crate) diagnostic: (f32, f32, usize),
 }
 
 impl Preview {
@@ -117,6 +119,8 @@ impl Preview {
             rendered_blocks: 0,
             #[cfg(test)]
             measure_calls: 0,
+            #[cfg(test)]
+            diagnostic: (0.0, 0.0, 0),
         })
     }
 
@@ -175,6 +179,8 @@ impl Preview {
             self.rendered_blocks = 0;
         }
         let mut resized = false;
+        #[cfg(test)]
+        let mut resized_blocks = 0;
         let output = area.show_viewport(ui, |ui, viewport| {
             let origin = ui.max_rect().min;
             let first = self
@@ -206,6 +212,10 @@ impl Preview {
                     self.blocks[index].height = size.y;
                     self.blocks[index].width = size.x;
                     resized = true;
+                    #[cfg(test)]
+                    {
+                        resized_blocks += 1;
+                    }
                 }
                 #[cfg(test)]
                 {
@@ -227,6 +237,10 @@ impl Preview {
             ui.ctx().request_repaint();
         }
         self.layout = Some(layout);
+        #[cfg(test)]
+        {
+            self.diagnostic = (output.state.offset.y, output.content_size.y, resized_blocks);
+        }
         output
     }
 

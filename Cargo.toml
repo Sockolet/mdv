@@ -1,6 +1,6 @@
 [package]
 name = "mdv"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.95"
 description = "A small native Markdown viewer and editor"
@@ -9,22 +9,30 @@ repository = "https://github.com/Sockolet/mdv"
 
 [dependencies]
 dunce = "1"
+bytemuck = "1.25"
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "persistence"] }
+egui-winit = { version = "0.36.2", default-features = false, features = ["clipboard", "wayland", "x11"] }
 egui_commonmark = { version = "0.25", default-features = false, features = ["load-images", "fetch", "svg"] }
 egui_commonmark_backend = { version = "=0.25.0", default-features = false }
 egui_extras = { version = "0.36.2", default-features = false }
+egui_software_backend = { version = "0.0.3", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 open = "5.3"
 percent-encoding = "2.3"
 pulldown-cmark = { version = "0.13", default-features = false }
 pulldown-cmark-to-cmark = "22"
 rfd = "0.17"
+ron = "0.12"
+raster-egui = { package = "egui", version = "0.34", default-features = false }
 serde = { version = "1", features = ["derive"] }
+softbuffer = { version = "0.4", default-features = false, features = ["x11", "x11-dlopen", "wayland", "wayland-dlopen"] }
 tempfile = "3.27"
 url = "2.5"
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "wayland", "x11"] }
 
 [target.'cfg(windows)'.dependencies]
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu_no_default_features"] }
+pollster = "0.4"
 wgpu = { version = "30", default-features = false, features = ["std", "dx12"] }
 
 [target.'cfg(not(windows))'.dependencies]

@@ -8,6 +8,42 @@ $ErrorActionPreference = 'Stop'
 $process = $null
 $temporaryFolder = $null
 
+if ($IsWindows) {
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class MdvWindowLookup {
+    delegate bool WindowCallback(IntPtr window, IntPtr data);
+    [DllImport("user32.dll")] static extern bool EnumWindows(WindowCallback callback, IntPtr data);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder text, int length);
+    [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wparam, IntPtr lparam, uint flags, uint timeout, out IntPtr result);
+    public static IntPtr Find(int process) {
+        var found = IntPtr.Zero;
+        EnumWindows((window, _) => {
+            GetWindowThreadProcessId(window, out var owner);
+            if (owner != process) return true;
+            var title = new StringBuilder(256);
+            GetWindowText(window, title, title.Capacity);
+            if (!title.ToString().StartsWith("MDV")) return true;
+            found = window;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
+    public static bool Responsive(IntPtr window) {
+        return SendMessageTimeout(window, 0, IntPtr.Zero, IntPtr.Zero, 2, 1000, out _) != IntPtr.Zero;
+    }
+    public static string Title(IntPtr window) {
+        var title = new StringBuilder(256);
+        GetWindowText(window, title, title.Capacity);
+        return title.ToString();
+    }
+}
+'@
+}
+
 try {
     $document = Join-Path $PSScriptRoot '..' 'examples' 'welcome.md'
     if ($Scroll) {
@@ -40,7 +76,8 @@ try {
             throw "MDV exited during startup with code $($process.ExitCode)."
         }
         if ($IsWindows) {
-            $ready = $process.MainWindowHandle -ne 0 -and $process.Responding
+            $window = [MdvWindowLookup]::Find($process.Id)
+            $ready = $window -ne 0 -and [MdvWindowLookup]::Responsive($window)
         } else {
             $windows = & xdotool search --pid $process.Id --name MDV 2>$null
             $ready = $LASTEXITCODE -eq 0 -and $windows.Count -gt 0
@@ -52,6 +89,7 @@ try {
     if (-not $ready) {
         throw 'MDV did not create a responsive native window within 30 seconds.'
     }
+    if ($IsWindows) { Write-Host "Opened: $([MdvWindowLookup]::Title($window))" }
     if ($Scroll) {
         if ($IsWindows) {
             Add-Type @'
@@ -80,7 +118,7 @@ public static class MdvScrollInput {
     }
 }
 '@
-            [MdvScrollInput]::Scroll($process.MainWindowHandle)
+            [MdvScrollInput]::Scroll($window)
         } else {
             $window = @($windows)[0]
             & xdotool mousemove --window $window 700 400
@@ -96,10 +134,10 @@ public static class MdvScrollInput {
     if ($process.HasExited) {
         throw 'MDV exited after creating its window.'
     }
-    if ($IsWindows -and -not $process.Responding) {
+    if ($IsWindows -and -not [MdvWindowLookup]::Responsive($window)) {
         throw 'MDV stopped responding while scrolling.'
     }
-    Write-Host "Native desktop smoke test passed (scroll input: $Scroll)."
+    Write-Host 'Native desktop startup smoke test passed.'
 } finally {
     if ($process) {
         if (-not $process.HasExited) {
