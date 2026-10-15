@@ -1,0 +1,4 @@
+Plain text, in the same tabbed interface.
+
+Click Edit to change this file. Save and Discard work just as they do for
+Markdown files.
