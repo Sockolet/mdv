@@ -16,7 +16,7 @@ The Linux build targets Ubuntu 22.04 and newer compatible distributions
 Debian/Ubuntu:
 
 ```sh
-sudo apt install libgl1 libegl1 libxkbcommon0 libwayland-client0 libdbus-1-3 \
+sudo apt install libgl1 libegl1 libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libdbus-1-3 \
   libx11-6 libxcursor1 libxi6 libxrandr2 xdg-utils xdg-desktop-portal zenity
 chmod +x mdv
 ./mdv
@@ -90,7 +90,7 @@ Visual Studio C++ build tools. On Debian/Ubuntu, install the build dependencies:
 
 ```sh
 sudo apt install build-essential pkg-config libx11-dev libxcursor-dev libxi-dev \
-  libxrandr-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev \
+  libxrandr-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libgl1-mesa-dev \
   libegl1-mesa-dev libdbus-1-dev
 ```
 

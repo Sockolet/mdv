@@ -32,11 +32,13 @@ jobs:
           components: rustfmt, clippy
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends pkg-config libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libegl1-mesa-dev libdbus-1-dev xvfb xauth xdotool xdg-utils xdg-desktop-portal zenity
+          sudo apt-get install -y --no-install-recommends pkg-config libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libgl1-mesa-dev libegl1-mesa-dev libdbus-1-dev xvfb xauth xdotool xdg-utils xdg-desktop-portal zenity
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check formatting
         run: cargo fmt --check
