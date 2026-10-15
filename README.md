@@ -72,6 +72,11 @@ links, and local/HTTP(S) images are supported. Standard heading links such as
 fragments on links to other files. Relative images resolve from the document's
 folder, not the application's working directory.
 
+Scrolling uses cached block geometry and only renders the visible Markdown.
+Large lists are rendered in bounded chunks, and code blocks retain their
+highlighted text layout. Resizing, appearance changes, edits, and image loads
+update the affected layout while preserving the reading position.
+
 HTML is displayed as text, not executed. There is no browser engine, plugin
 system, Mermaid renderer, or LaTeX engine. Remote images may make network
 requests when a document is viewed.
@@ -100,6 +105,13 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --release --locked
+```
+
+To run the scrolling benchmark (18,000-line mixed Markdown, 10,000-item list,
+and 10,000-line code block):
+
+```sh
+cargo test --release --locked scroll_frame_benchmark -- --ignored --nocapture
 ```
 
 The release executable is in `target/release`. GitHub Actions performs these

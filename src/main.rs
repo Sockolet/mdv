@@ -4,6 +4,7 @@ mod app;
 mod document;
 mod links;
 mod markdown;
+mod preview;
 mod settings;
 mod tree;
 

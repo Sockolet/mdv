@@ -5,7 +5,6 @@ use std::{
 };
 
 use eframe::egui::{self, Key, Modifiers};
-use egui_commonmark::CommonMarkViewer;
 
 use crate::{
     document::Document,
@@ -342,20 +341,12 @@ impl Mdv {
                         self.focus_editor = false;
                     }
                 });
+            } else if tab.is_markdown {
+                tab.view.show(ui, tab.anchor.take());
             } else {
-                if let Some(anchor) = tab.anchor.take() {
-                    *tab.cache.scroll_to_id_target_mut() = Some(anchor);
-                }
                 egui::ScrollArea::both().id_salt("preview").show(ui, |ui| {
                     ui.add_space(8.0);
-                    if tab.is_markdown {
-                        CommonMarkViewer::new()
-                            .enable_scroll_to_heading(true)
-                            .explicit_image_uri_scheme(true)
-                            .show(ui, &mut tab.cache, &tab.preview);
-                    } else {
-                        ui.add(egui::Label::new(&tab.text).wrap().selectable(true));
-                    }
+                    ui.add(egui::Label::new(&tab.text).wrap().selectable(true));
                     ui.add_space(16.0);
                 });
             }
@@ -499,6 +490,7 @@ mod tests {
         assert!(harness.query_by_label("Save").is_none());
         assert!(harness.query_by_label("Discard").is_none());
         assert!(harness.query_by_label("Edit").is_some());
+        assert!(harness.query_by_label("Edited").is_some());
         assert_eq!(
             fs::read_to_string(directory.path().join("first.md")).unwrap(),
             "# Edited\n"
@@ -535,6 +527,67 @@ mod tests {
             harness.state().tabs[0].draft.as_deref(),
             Some("Keep these edits")
         );
+    }
+
+    #[test]
+    fn fragment_links_reach_headings_outside_the_visible_blocks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("anchors.md");
+        let source = format!(
+            "# Top {{#top}}\n\n[Jump to the end](#last)\n\n{}\n\n\
+             # Last heading {{#last}}\n\n[Back to top](#top)\n",
+            "A paragraph between the link and its target.\n\n".repeat(300)
+        );
+        fs::write(&path, source).unwrap();
+        let mut app = Mdv::default();
+        app.open_path(&path, None).unwrap();
+        let mut harness = Harness::new_ui_state(|ui, app| app.show(ui), app);
+        assert!(harness.query_by_label("Last heading").is_none());
+        harness.get_by_label("Jump to the end").click();
+        harness.run();
+        assert!(harness.query_by_label("Last heading").is_some());
+        assert_eq!(harness.state().tabs.len(), 1);
+    }
+
+    #[test]
+    fn cached_code_remains_selectable_copyable_and_read_only() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("code.md");
+        let code = (0..100)
+            .map(|index| format!("let value_{index} = \"selectable code\";"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(
+            &path,
+            format!("Introductory paragraph.\n\n```rust\n{code}\n```\n"),
+        )
+        .unwrap();
+        let mut app = Mdv::default();
+        app.open_path(&path, None).unwrap();
+        let mut harness = Harness::new_ui_state(|ui, app| app.show(ui), app);
+        harness
+            .get_by_role(egui::accesskit::Role::MultilineTextInput)
+            .focus();
+        harness.run();
+        harness.key_press_modifiers(Modifiers::COMMAND, Key::A);
+        harness.run();
+        harness.event(egui::Event::Copy);
+        harness.step();
+        assert!(harness.output().platform_output.commands.iter().any(
+            |command| matches!(command, egui::OutputCommand::CopyText(text) if text == &code)
+        ));
+        harness
+            .get_by_role(egui::accesskit::Role::MultilineTextInput)
+            .type_text("Not editable");
+        harness.run();
+        assert_eq!(
+            harness
+                .get_by_role(egui::accesskit::Role::MultilineTextInput)
+                .value()
+                .as_deref(),
+            Some(code.as_str())
+        );
+        assert!(harness.state().tabs[0].draft.is_none());
     }
 
     #[test]
@@ -618,6 +671,77 @@ mod tests {
         assert_eq!(
             fs::read_to_string(directory.path().join("second.md")).unwrap(),
             "Second changed"
+        );
+    }
+
+    #[test]
+    #[ignore = "Run in release mode to measure real scroll-frame cost"]
+    fn scroll_frame_benchmark() {
+        let mut source = String::new();
+        for section in 0..1_000 {
+            source.push_str(&format!(
+                "## Section {section}\n\nA paragraph with **bold text**, \
+                 *emphasis*, `inline code`, and [a link](other.md). \
+                 Scrolling should not lay out the entire document again.\n\n\
+                 - First item\n- Second item\n- Third item\n\n\
+                 ```rust\nfn example() {{\n    println!(\"section {section}\");\n}}\n```\n\n\
+                 | Name | Value |\n| --- | --- |\n| Example | {section} |\n\n"
+            ));
+        }
+        benchmark_scroll_document("Mixed Markdown", &source);
+        let list: String = (0..10_000)
+            .map(|index| format!("1. Item {index} with **bold** and [a link](other.md).\n"))
+            .collect();
+        benchmark_scroll_document("Long ordered list", &list);
+        let code: String = (0..10_000)
+            .map(|index| format!("let variable_{index} = \"a line of code\";\n"))
+            .collect();
+        benchmark_scroll_document("Long code block", &format!("```rust\n{code}```\n"));
+    }
+
+    fn benchmark_scroll_document(name: &str, source: &str) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("large.md");
+        fs::write(&path, source).unwrap();
+        let mut app = Mdv::default();
+        app.open_path(&path, None).unwrap();
+        let ctx = egui::Context::default();
+        let mut milliseconds = Vec::new();
+        for frame in 0..135 {
+            let mut input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1100.0, 760.0),
+                )),
+                time: Some(frame as f64 / 60.0),
+                ..Default::default()
+            };
+            input
+                .events
+                .push(egui::Event::PointerMoved(egui::pos2(800.0, 400.0)));
+            input.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -120.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            });
+            let start = std::time::Instant::now();
+            let mut output = ctx.run_ui(input, |ui| app.show(ui));
+            let _primitives =
+                ctx.tessellate(std::mem::take(&mut output.shapes), output.pixels_per_point);
+            output.drop_without_applying_deltas();
+            if frame >= 15 {
+                milliseconds.push(start.elapsed().as_secs_f64() * 1_000.0);
+            }
+        }
+        milliseconds.sort_by(f64::total_cmp);
+        eprintln!(
+            "{name}: {} bytes, {} lines; scroll frames: p50 {:.2} ms, p95 {:.2} ms, max {:.2} ms",
+            source.len(),
+            source.lines().count(),
+            milliseconds[60],
+            milliseconds[114],
+            milliseconds[119],
         );
     }
 }

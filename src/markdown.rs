@@ -4,14 +4,17 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 use crate::links::{self, LinkTarget};
 
-pub fn prepare(source: &str, path: &Path) -> Result<String, String> {
-    let options = Options::ENABLE_TABLES
+pub fn parser_options() -> Options {
+    Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_HEADING_ATTRIBUTES
-        | Options::ENABLE_GFM;
-    let mut events: Vec<_> = Parser::new_ext(source, options).collect();
+        | Options::ENABLE_GFM
+}
+
+pub fn prepare(source: &str, path: &Path) -> Result<String, String> {
+    let mut events: Vec<_> = Parser::new_ext(source, parser_options()).collect();
     let mut used_ids: HashSet<String> = events
         .iter()
         .filter_map(|event| match event {

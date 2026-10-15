@@ -4,17 +4,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use egui_commonmark::CommonMarkCache;
-
-use crate::markdown;
+use crate::{markdown, preview::Preview};
 
 pub struct Document {
     pub path: PathBuf,
     pub text: String,
     pub draft: Option<String>,
     pub is_markdown: bool,
-    pub preview: String,
-    pub cache: CommonMarkCache,
+    pub view: Preview,
     pub anchor: Option<String>,
     disk_bytes: Vec<u8>,
     bom: bool,
@@ -54,13 +51,13 @@ impl Document {
         } else {
             String::new()
         };
+        let view = Preview::new(&preview)?;
         Ok(Self {
             path,
             text,
             draft: None,
             is_markdown,
-            preview,
-            cache: CommonMarkCache::default(),
+            view,
             anchor: None,
             disk_bytes,
             bom,
@@ -98,6 +95,7 @@ impl Document {
         } else {
             String::new()
         };
+        let view = Preview::new(&preview)?;
         let metadata = fs::metadata(&self.path).map_err(|err| format!("Cannot save: {err}"))?;
         if metadata.permissions().readonly() {
             return Err("This file is read-only. Your edits have not been lost.".into());
@@ -125,9 +123,8 @@ impl Document {
             .persist(&self.path)
             .map_err(|err| format!("Cannot replace {}: {err}", self.path.display()))?;
         self.text = self.draft.take().expect("The draft was checked above");
-        self.preview = preview;
         self.disk_bytes = bytes;
-        self.cache = CommonMarkCache::default();
+        self.view = view;
         Ok(())
     }
 
@@ -161,7 +158,6 @@ mod tests {
         document.save().unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "# After\n");
         assert_eq!(document.text, "# After\n");
-        assert!(document.preview.contains("After"));
         assert!(document.draft.is_none());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }

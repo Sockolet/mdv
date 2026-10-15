@@ -1,6 +1,6 @@
 [package]
 name = "mdv"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.95"
 description = "A small native Markdown viewer and editor"
@@ -11,6 +11,8 @@ repository = "https://github.com/Sockolet/mdv"
 dunce = "1"
 eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "persistence"] }
 egui_commonmark = { version = "0.25", default-features = false, features = ["load-images", "fetch", "svg"] }
+egui_commonmark_backend = { version = "=0.25.0", default-features = false }
+egui_extras = { version = "0.36.2", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 open = "5.3"
 percent-encoding = "2.3"

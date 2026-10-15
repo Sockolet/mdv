@@ -46,18 +46,20 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Test
         run: cargo test --locked
+      - name: Scroll performance
+        run: cargo test --release --locked scroll_frame_benchmark -- --ignored --nocapture
       - name: Build release
         run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Windows native smoke test
         if: runner.os == 'Windows'
         run: |
-          & (Join-Path 'scripts' 'smoke.ps1') -Binary (Join-Path 'target' '${{ matrix.target }}' 'release' 'mdv.exe')
+          & (Join-Path 'scripts' 'smoke.ps1') -Binary (Join-Path 'target' '${{ matrix.target }}' 'release' 'mdv.exe') -Scroll
       - name: Linux native smoke test
         if: runner.os == 'Linux'
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
-          xvfb-run --auto-servernum pwsh -File (Join-Path 'scripts' 'smoke.ps1') -Binary (Join-Path 'target' '${{ matrix.target }}' 'release' 'mdv')
+          xvfb-run --auto-servernum pwsh -File (Join-Path 'scripts' 'smoke.ps1') -Binary (Join-Path 'target' '${{ matrix.target }}' 'release' 'mdv') -Scroll
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package
         run: |
